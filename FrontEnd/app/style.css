@@ -1,0 +1,26 @@
+/* Style cho VBox */
+.vbox {
+    -fx-padding: 20;
+    -fx-alignment: center;
+}
+
+/* Style cho nút "Điểm danh" */
+.button-diem-danh {
+    -fx-font-size: 14px;
+    -fx-background-color: #4CAF50; /* Màu xanh lá cây */
+    -fx-text-fill: white; /* Màu chữ trắng */
+}
+
+/* Style cho nút "Admin" */
+.button-admin {
+    -fx-font-size: 14px;
+    -fx-background-color: #2196F3; /* Màu xanh dương */
+    -fx-text-fill: white; /* Màu chữ trắng */
+}
+
+/* Style cho nút "Thoát" */
+.button-thoat {
+    -fx-font-size: 14px;
+    -fx-background-color: #f44336; /* Màu đỏ */
+    -fx-text-fill: white; /* Màu chữ trắng */
+}
