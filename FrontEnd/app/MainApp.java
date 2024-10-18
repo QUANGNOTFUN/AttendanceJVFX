@@ -1,5 +1,7 @@
 package app;
 
+import org.opencv.core.Core;
+
 import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
@@ -61,6 +63,8 @@ public class MainApp extends Application {
 	}
 
 	public static void main(String[] args) {
+		System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+		System.out.println("OpenCV library loaded.");
 		launch(args);
 	}
 }

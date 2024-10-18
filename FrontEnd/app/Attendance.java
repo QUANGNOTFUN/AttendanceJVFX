@@ -123,6 +123,10 @@ public class Attendance {
 	// Hàm phát hiện khuôn mặt và vẽ khung xung quanh khuôn mặt
 	private void detectAndDisplayFaces(Mat frame) {
 		Mat grayFrame = new Mat();
+		
+		long faceDetectedTime = -1;
+	    boolean faceRecognized = false;
+
 
 		// Chuyển đổi khung hình sang ảnh xám
 		Imgproc.cvtColor(frame, grayFrame, Imgproc.COLOR_BGR2GRAY);
@@ -145,24 +149,42 @@ public class Attendance {
 			double matchValue = result.getValue();
 
 			if (studentId != -1) {
-				String studentName = studentMap.get(studentId);
+			    String studentName = studentMap.get(studentId);
+			    
 
-				// Tính toán phần trăm độ chính xác
-				double accuracy = Math.max(0, 100 - (matchValue / 200.0 * 100)); // Từ 0 đến 100%
-				String accuracyText = String.format("Accuracy: %.2f%%", accuracy);
+			    // Tính toán phần trăm độ chính xác
+			    double accuracy = Math.max(0, 100 - (matchValue / 200.0 * 100)); // Từ 0 đến 100%
+			    String accuracyText = String.format("Accuracy: %.2f%%", accuracy);
 
-				// Hiển thị tên sinh viên và độ chính xác
-				Imgproc.putText(frame, studentName, new Point(face.x, face.y - 10), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5,
-						new Scalar(0, 255, 0), 2);
-				Imgproc.putText(frame, accuracyText, new Point(face.x, face.y + face.height + 20),
-						Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 255, 0), 2);
-				Imgproc.putText(frame, "ID: " + studentId, new Point(face.x, face.y + face.height + 40),
-						Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 255, 0), 2);
+			    // Kiểm tra nếu đã nhận diện khuôn mặt
+			    if (!faceRecognized) {
+			        faceDetectedTime = System.currentTimeMillis();
+			        faceRecognized = true;
+			    } else {
+			        long currentTime = System.currentTimeMillis();
+			        if (currentTime - faceDetectedTime >= 5000) { // Sau 5 giây
+			            Imgproc.putText(frame, "Face detected for 5 seconds", new Point(face.x, face.y + face.height + 60),
+			                            Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(255, 255, 0), 2);
+			        }
+			    }
+
+			    // Hiển thị tên sinh viên và độ chính xác
+			    Imgproc.putText(frame, studentName, new Point(face.x, face.y - 10), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5,
+			                    new Scalar(0, 255, 0), 2);
+			    Imgproc.putText(frame, accuracyText, new Point(face.x, face.y + face.height + 20),
+			                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 255, 0), 2);
+			    Imgproc.putText(frame, "ID: " + studentId, new Point(face.x, face.y + face.height + 40),
+			                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 255, 0), 2);
 			} else {
-				// Hiển thị "Unknown" nếu không có sinh viên nào khớp
-				Imgproc.putText(frame, "Unknown", new Point(face.x, face.y - 10), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5,
-						new Scalar(0, 0, 255), 2);
+			    // Nếu không nhận diện được khuôn mặt, reset thời gian
+			    faceDetectedTime = -1;
+			    faceRecognized = false;
+			    
+			    // Hiển thị "Unknown" nếu không có sinh viên nào khớp
+			    Imgproc.putText(frame, "Unknown", new Point(face.x, face.y - 10), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5,
+			                    new Scalar(0, 0, 255), 2);
 			}
+
 		}
 	}
 
