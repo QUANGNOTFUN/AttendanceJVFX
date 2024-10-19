@@ -10,10 +10,10 @@ import org.opencv.core.Mat;
 import org.opencv.core.MatOfFloat;
 import org.opencv.core.MatOfInt;
 import org.opencv.core.MatOfRect;
+import org.opencv.core.Size;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
-import org.opencv.core.Size;
 import org.opencv.highgui.HighGui;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
@@ -21,210 +21,202 @@ import org.opencv.objdetect.CascadeClassifier;
 import org.opencv.videoio.VideoCapture;
 
 public class Attendance {
+    
+    private static final String CASCADE_PATH = "open_cv/haarcascade_frontalface_alt.xml";
+    private static final String STUDENT_DATA_PATH = "dataset"; // Đường dẫn đến thư mục chứa dataset
+    private CascadeClassifier faceClassifier;
+    private Map<Integer, String> studentNames; // Lưu tên sinh viên theo ID
+    private Map<Integer, Mat> faceHistograms; // Lưu histogram của các khuôn mặt
 
-	// Đường dẫn tới tệp cascade phân loại khuôn mặt
-	private static final String FACE_CASCADE_PATH = "open_cv/haarcascade_frontalface_alt.xml";
-	private static final String DATASET_PATH = "dataset"; // Đường dẫn tới thư mục dataset
+    // Thay đổi để theo dõi thời gian và số lần thành công
+    private long startTime = 0; // Thời gian bắt đầu nhận diện
+    private int successCount = 0; // Số lần nhận diện thành công
+    private static final int SUCCESS_THRESHOLD = 60; // Ngưỡng thành công (60%)
+    private static final long DURATION = 3000; // 3 giây
 
-	private CascadeClassifier faceCascade;
-	private Map<Integer, String> studentMap; // Lưu trữ ID và tên sinh viên
-	private Map<Integer, Mat> faceHistograms; // Lưu trữ histogram của khuôn mặt
+    public Attendance() {
+        faceClassifier = new CascadeClassifier(CASCADE_PATH);
+        studentNames = new HashMap<>();
+        faceHistograms = new HashMap<>();
+        loadStudentData(); // Tải dữ liệu sinh viên và tính toán histogram
+    }
 
-	public Attendance() {
-		// Khởi tạo bộ phân loại khuôn mặt
-		faceCascade = new CascadeClassifier(FACE_CASCADE_PATH);
-		studentMap = new HashMap<>();
-		faceHistograms = new HashMap<>();
-		loadStudentData(); // Tải dữ liệu sinh viên và tính histogram từ dataset
-	}
+    // Phương thức khởi động quá trình nhận diện khuôn mặt
+    public void startRecognition() {
+        System.out.println("Bắt đầu nhận diện khuôn mặt...");
 
-	public static void main(String[] args) {
-		// Nạp thư viện OpenCV
-		System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
-		System.out.println("OpenCV library loaded.");
+        // Khởi tạo camera để lấy hình ảnh
+        VideoCapture camera = new VideoCapture(0); // Sử dụng camera mặc định
+        if (!camera.isOpened()) {
+            System.out.println("Không thể mở camera.");
+            return;
+        }
 
-		Attendance faceRecognizer = new Attendance();
-		faceRecognizer.startRecognition();
-	}
+        Mat frame = new Mat();
+        while (true) {
+            if (camera.read(frame)) {
+                Core.flip(frame, frame, 1); // Lật khung hình để dễ dàng nhận diện
 
-	// Hàm tải dữ liệu sinh viên từ thư mục dataset
-	private void loadStudentData() {
-		File datasetDir = new File(DATASET_PATH);
-		File[] studentDirs = datasetDir.listFiles(File::isDirectory); // Lấy danh sách thư mục sinh viên
+                // Phát hiện khuôn mặt trong ảnh
+                detectAndDisplay(frame); // Phát hiện khuôn mặt và hiển thị
 
-		if (studentDirs != null) {
-			for (File studentDir : studentDirs) {
-				String studentName = studentDir.getName(); // Lấy tên thư mục
-				String[] parts = studentName.split("_"); // Giả sử tên thư mục có định dạng id_name
+                // Hiển thị khung hình nhận diện
+                HighGui.imshow("Nhận diện khuôn mặt", frame);
 
-				// Thêm kiểm tra tên thư mục có chứa ký tự đặc biệt
-				if (!studentName.matches("^[a-zA-Z0-9_]+$")) {
-					System.out.println("Tên thư mục chứa ký tự không hợp lệ: " + studentName);
-					continue; // Bỏ qua thư mục không hợp lệ
-				}
+                // Nếu nhấn phím 'q' thì thoát
+                if (HighGui.waitKey(1) == 'q') {
+                    break;
+                }
+            } else {
+                System.out.println("Không thể đọc khung hình.");
+                break;
+            }
+        }
 
-				int id;
-				try {
-					id = Integer.parseInt(parts[0]); // Lấy ID từ phần trước dấu gạch dưới
-					studentMap.put(id, studentName); // Lưu ID và tên sinh viên
-					System.out.println("Đã thêm sinh viên: ID = " + id + ", Tên = " + studentName);
+        // Giải phóng tài nguyên
+        camera.release();
+        HighGui.destroyAllWindows();
+    }
 
-					// Tải ảnh khuôn mặt từ thư mục sinh viên
-					File[] faceImages = studentDir.listFiles((dir, name) -> name.endsWith(".jpg"));
-					if (faceImages != null && faceImages.length > 0) {
-						// Tính toán histogram cho ảnh đầu tiên của sinh viên
-						Mat image = Imgcodecs.imread(faceImages[0].getAbsolutePath(), Imgcodecs.IMREAD_GRAYSCALE);
-						Mat histogram = new Mat();
-						calculateHistogram(image, histogram);
-						faceHistograms.put(id, histogram); // Lưu histogram cho sinh viên
-					}
+    // Hàm phát hiện khuôn mặt và xử lý điểm danh
+    private void detectAndDisplay(Mat frame) {
+        Mat grayFrame = new Mat();
+        Imgproc.cvtColor(frame, grayFrame, Imgproc.COLOR_BGR2GRAY);
+        Imgproc.equalizeHist(grayFrame, grayFrame); // Cải thiện chất lượng ảnh
 
-				} catch (NumberFormatException e) {
-					System.out.println("ID không hợp lệ trong tên thư mục: " + studentName);
-				}
-			}
-		}
-	}
+        // Phát hiện khuôn mặt trong ảnh
+        MatOfRect faces = new MatOfRect();
+        faceClassifier.detectMultiScale(grayFrame, faces, 1.1, 3, 0, new Size(100, 100), new Size());
 
-	// Hàm bắt đầu nhận diện khuôn mặt
-	public void startRecognition() {
-		VideoCapture camera = new VideoCapture(0);
-		if (!camera.isOpened()) {
-			System.out.println("Không thể mở camera.");
-			return;
-		}
+        Rect[] faceArray = faces.toArray();
+        for (Rect face : faceArray) {
+            Imgproc.rectangle(frame, face.tl(), face.br(), new Scalar(0, 255, 0), 2); // Vẽ khung quanh khuôn mặt
 
-		Mat frame = new Mat();
-		while (true) {
-			if (camera.read(frame)) {
-				// Lật khung hình
-				Core.flip(frame, frame, 1); // Lật khung hình theo chiều ngang
+            // Nhận diện và xác định sinh viên
+            Map.Entry<Integer, Double> result = recognizeFace(face, frame);
+            int studentId = result.getKey();
+            double matchValue = result.getValue();
 
-				// Phát hiện khuôn mặt
-				detectAndDisplayFaces(frame);
+            if (studentId != -1) {
+                String studentName = studentNames.get(studentId);
+                String accuracyText = String.format("Accuracy: %.0f%%", (100 - matchValue / 200.0 * 100));
 
-				// Hiển thị khung hình lên cửa sổ
-				HighGui.imshow("Camera", frame);
+                Imgproc.putText(frame, studentName, new Point(face.x, face.y - 10), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 255, 0), 2);
+                Imgproc.putText(frame, accuracyText, new Point(face.x, face.y + face.height + 20), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 255, 0), 2);
 
-				// Thoát nếu nhấn phím 'q'
-				if (HighGui.waitKey(1) == 'q') {
-					break;
-				}
-			} else {
-				System.out.println("Không thể đọc khung hình từ camera.");
-				break;
-			}
-		}
+                // Cập nhật điểm danh nếu độ chính xác trên 60%
+                if (matchValue < 200) {
+                    updateAttendance(studentId);
+                }
 
-		camera.release();
-		HighGui.destroyAllWindows();
-	}
+                // Theo dõi độ chính xác để đảm bảo đạt yêu cầu 3 giây liên tục
+                trackRecognition(studentId, matchValue);
+            } else {
+                Imgproc.putText(frame, "Unknown", new Point(face.x, face.y - 10), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 0, 255), 2);
+                resetRecognition(); // Reset nếu không nhận diện được
+            }
+        }
+    }
 
-	// Hàm phát hiện khuôn mặt và vẽ khung xung quanh khuôn mặt
-	private void detectAndDisplayFaces(Mat frame) {
-		Mat grayFrame = new Mat();
-		
-		long faceDetectedTime = -1;
-	    boolean faceRecognized = false;
+    // Hàm theo dõi độ chính xác của nhận diện
+    private void trackRecognition(int studentId, double matchValue) {
+        if (matchValue < 200) { // Nếu độ chính xác đủ
+            if (startTime == 0) {
+                startTime = System.currentTimeMillis(); // Ghi lại thời gian bắt đầu
+            }
 
+            // Kiểm tra xem thời gian đã đủ 3 giây chưa
+            if (System.currentTimeMillis() - startTime >= DURATION) {
+                // Điểm danh nếu đạt yêu cầu
+                updateAttendance(studentId);
+                resetRecognition(); // Reset lại
+            }
+        } else {
+            resetRecognition(); // Reset nếu độ chính xác không đủ
+        }
+    }
 
-		// Chuyển đổi khung hình sang ảnh xám
-		Imgproc.cvtColor(frame, grayFrame, Imgproc.COLOR_BGR2GRAY);
-		Imgproc.equalizeHist(grayFrame, grayFrame); // Cải thiện chất lượng ảnh xám
+    // Reset trạng thái nhận diện
+    private void resetRecognition() {
+        startTime = 0;
+        successCount = 0;
+    }
 
-		// Phát hiện khuôn mặt
-		MatOfRect faces = new MatOfRect();
-		faceCascade.detectMultiScale(grayFrame, faces, 1.1, 2, 0, new Size(30, 30), new Size());
+    // Hàm nhận diện và trả về ID sinh viên cùng độ chính xác
+    private Map.Entry<Integer, Double> recognizeFace(Rect face, Mat frame) {
+        Mat faceMat = new Mat(frame, face);
+        Mat faceHistogram = new Mat();
+        computeHistogram(faceMat, faceHistogram);
 
-		// Chuyển đổi MatOfRect thành mảng Rect[] để duyệt
-		Rect[] facesArray = faces.toArray();
+        int bestMatchId = -1;
+        double bestMatchValue = Double.MAX_VALUE;
 
-		// Vẽ khung xung quanh khuôn mặt và hiển thị tên
-		for (Rect face : facesArray) {
-			Imgproc.rectangle(frame, face.tl(), face.br(), new Scalar(0, 255, 0), 2);
+        // So sánh với tất cả các histogram của sinh viên
+        for (Map.Entry<Integer, Mat> entry : faceHistograms.entrySet()) {
+            double matchValue = Imgproc.compareHist(faceHistogram, entry.getValue(), Imgproc.CV_COMP_CHISQR);
+            if (matchValue < bestMatchValue) {
+                bestMatchValue = matchValue;
+                bestMatchId = entry.getKey();
+            }
+        }
 
-			// Xác định sinh viên và giá trị khớp
-			Map.Entry<Integer, Double> result = identifyStudent(face, frame);
-			int studentId = result.getKey();
-			double matchValue = result.getValue();
+        // Nếu độ chính xác thấp, coi như không nhận diện được
+        if (bestMatchValue > 200.0) {
+            bestMatchId = -1;
+        }
 
-			if (studentId != -1) {
-			    String studentName = studentMap.get(studentId);
-			    
+        return Map.entry(bestMatchId, bestMatchValue);
+    }
 
-			    // Tính toán phần trăm độ chính xác
-			    double accuracy = Math.max(0, 100 - (matchValue / 200.0 * 100)); // Từ 0 đến 100%
-			    String accuracyText = String.format("Accuracy: %.2f%%", accuracy);
+    // Hàm tính toán histogram của khuôn mặt
+    private void computeHistogram(Mat image, Mat histogram) {
+        MatOfInt histSize = new MatOfInt(256);
+        MatOfFloat histRange = new MatOfFloat(0f, 256f);
+        MatOfInt channels = new MatOfInt(0);
 
-			    // Kiểm tra nếu đã nhận diện khuôn mặt
-			    if (!faceRecognized) {
-			        faceDetectedTime = System.currentTimeMillis();
-			        faceRecognized = true;
-			    } else {
-			        long currentTime = System.currentTimeMillis();
-			        if (currentTime - faceDetectedTime >= 5000) { // Sau 5 giây
-			            Imgproc.putText(frame, "Face detected for 5 seconds", new Point(face.x, face.y + face.height + 60),
-			                            Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(255, 255, 0), 2);
-			        }
-			    }
+        Imgproc.calcHist(Arrays.asList(image), channels, new Mat(), histogram, histSize, histRange);
+        Core.normalize(histogram, histogram, 0, 1, Core.NORM_MINMAX);
+    }
 
-			    // Hiển thị tên sinh viên và độ chính xác
-			    Imgproc.putText(frame, studentName, new Point(face.x, face.y - 10), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5,
-			                    new Scalar(0, 255, 0), 2);
-			    Imgproc.putText(frame, accuracyText, new Point(face.x, face.y + face.height + 20),
-			                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 255, 0), 2);
-			    Imgproc.putText(frame, "ID: " + studentId, new Point(face.x, face.y + face.height + 40),
-			                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(0, 255, 0), 2);
-			} else {
-			    // Nếu không nhận diện được khuôn mặt, reset thời gian
-			    faceDetectedTime = -1;
-			    faceRecognized = false;
-			    
-			    // Hiển thị "Unknown" nếu không có sinh viên nào khớp
-			    Imgproc.putText(frame, "Unknown", new Point(face.x, face.y - 10), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5,
-			                    new Scalar(0, 0, 255), 2);
-			}
+    // Cập nhật trạng thái điểm danh trong cơ sở dữ liệu
+    private void updateAttendance(int studentId) {
+        System.out.println("Sinh viên " + studentId + " đã được điểm danh.");
+        // Gọi phương thức để cập nhật cơ sở dữ liệu tại đây
+    }
 
-		}
-	}
+    // Tải dữ liệu sinh viên từ thư mục dataset
+    private void loadStudentData() {
+        File datasetDir = new File(STUDENT_DATA_PATH);
+        File[] studentDirs = datasetDir.listFiles(File::isDirectory); // Lấy tất cả thư mục sinh viên
 
-	// Hàm xác định ID sinh viên từ khuôn mặt
-	private Map.Entry<Integer, Double> identifyStudent(Rect face, Mat frame) {
-		// Cắt khuôn mặt từ khung hình
-		Mat faceMat = new Mat(frame, face);
-		Mat histogram = new Mat();
-		calculateHistogram(faceMat, histogram); // Tính toán histogram cho khuôn mặt
+        if (studentDirs != null) {
+            for (File studentDir : studentDirs) {
+                String studentName = studentDir.getName();
+                String[] parts = studentName.split("_");
+                try {
+                    int studentId = Integer.parseInt(parts[0]);
+                    studentNames.put(studentId, studentName);
 
-		int bestMatchId = -1;
-		double bestMatchValue = Double.MAX_VALUE;
-		double threshold = 200.0; // Ngưỡng để xác định khớp
+                    // Tính histogram cho các ảnh của sinh viên
+                    File[] images = studentDir.listFiles((dir, name) -> name.endsWith(".jpg"));
+                    if (images != null) {
+                        Mat totalHistogram = new Mat();
+                        for (File image : images) {
+                            Mat img = Imgcodecs.imread(image.getAbsolutePath());
+                            computeHistogram(img, totalHistogram);
+                        }
+                        faceHistograms.put(studentId, totalHistogram);
+                    }
+                } catch (NumberFormatException e) {
+                    System.out.println("Tên thư mục không hợp lệ: " + studentName);
+                }
+            }
+        }
+    }
 
-		// So sánh với các histogram đã lưu
-		for (Map.Entry<Integer, Mat> entry : faceHistograms.entrySet()) {
-			double matchValue = Imgproc.compareHist(histogram, entry.getValue(), Imgproc.CV_COMP_CHISQR);
-			if (matchValue < bestMatchValue) {
-				bestMatchValue = matchValue;
-				bestMatchId = entry.getKey();
-			}
-		}
-
-		// Nếu giá trị khớp lớn hơn ngưỡng, trả về -1 để thể hiện không có sinh viên nào
-		// khớp
-		if (bestMatchValue > threshold) {
-			bestMatchId = -1;
-		}
-
-		// Trả về cả ID và giá trị khớp tốt nhất
-		return Map.entry(bestMatchId, bestMatchValue);
-	}
-
-	// Hàm tính toán histogram
-	private void calculateHistogram(Mat image, Mat histogram) {
-		MatOfInt histSize = new MatOfInt(256);
-		MatOfFloat histRange = new MatOfFloat(0f, 256f);
-		MatOfInt channels = new MatOfInt(0);
-
-		Imgproc.calcHist(Arrays.asList(image), channels, new Mat(), histogram, histSize, histRange);
-		Core.normalize(histogram, histogram, 0, 1, Core.NORM_MINMAX);
-	}
+    public static void main(String[] args) {
+        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+        Attendance attendance = new Attendance();
+        attendance.startRecognition();
+    }
 }

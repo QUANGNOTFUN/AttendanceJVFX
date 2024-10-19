@@ -74,5 +74,17 @@ public class ConnectSQL {
 			System.err.println("Lỗi khi cập nhật trạng thái sinh viên: " + e.getMessage());
 		}
 	}
+	public void updateAttendance(int studentId, String status) {
+        String query = "INSERT INTO attendance (student_id, attendance_date, status) VALUES (?, CURDATE(), ?)";
+
+        try (PreparedStatement preparedStatement = connection.prepareStatement(query)) {
+            preparedStatement.setInt(1, studentId);
+            preparedStatement.setString(2, status);
+            preparedStatement.executeUpdate();
+            System.out.println("Đã cập nhật trạng thái điểm danh cho sinh viên " + studentId);
+        } catch (SQLException e) {
+            System.err.println("Lỗi khi cập nhật điểm danh: " + e.getMessage());
+        }
+    }
 
 }

@@ -2,6 +2,8 @@ package app;
 
 import java.io.File;
 
+import org.opencv.core.Core;
+
 import connect.ConnectSQL;
 import controller.FaceDetect;
 import javafx.application.Application;
@@ -79,9 +81,6 @@ public class AddStudent extends Application {
 					// Lưu thông tin sinh viên vào cơ sở dữ liệu
 					connectSQL.addStudentToDatabase(newId, name, studentClass, imagePath);
 
-					// Kiểm tra trạng thái nhận diện
-					checkAttendance(student);
-
 					// Hiển thị thông tin sinh viên
 					student.displayStudentInfo();
 				}
@@ -95,36 +94,11 @@ public class AddStudent extends Application {
 		}
 	}
 
-	private void checkAttendance(Student student) {
-		new Thread(() -> {
-			int presentCount = 0;
-			long startTime = System.currentTimeMillis();
 
-			while (true) {
-				double accuracy = faceDetect.getRecognitionAccuracy(); // Giả sử có phương thức này
-				if (accuracy > 70) {
-					presentCount++;
-				} else {
-					presentCount = 0; // Reset nếu không đạt
-				}
-
-				// Kiểm tra nếu đã đạt 5 giây
-				if (presentCount >= 5) {
-					connectSQL.updateStudentStatus(student.getId(), "present");
-					break; // Thoát khỏi vòng lặp
-				}
-
-				// Delay 1 giây trước khi kiểm tra lại
-				try {
-					Thread.sleep(1000);
-				} catch (InterruptedException e) {
-					e.printStackTrace();
-				}
-			}
-		}).start();
-	}
 
 	public static void main(String[] args) {
+		System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+
 		launch(args);
 	}
 }
